@@ -1,0 +1,282 @@
+# Docker + Hadoop + Hive Setup
+
+### Test Docker Run
+
+docker run hello-world
+
+### Download Hadoop Image
+
+docker pull macio232/hadoop-pseudo-distributed-mode
+
+### New Hadoop Container Create and Run 
+
+docker run -p 9870:9870 -p 8088:8088 -it --name=myHadoop macio232/hadoop-pseudo-distributed-mode
+
+## docker container start and stop (do another terminal)
+
+docker container start -i  myHadoop 
+docker stop myHadoop
+
+## check existing folder list
+
+ hdfs dfs -ls /
+
+### Create new folder (sir may ask to create a folder with roll)
+
+hdfs dfs -mkdir -p /bankdb
+
+### create database and tables
+ hive     //enter hive before show databases
+ quit     // exit from hive if need
+# check existing databases 
+ show databases;
+# create database
+ create database bankdb;
+ show databases;
+ use bankdb;    //every time work in database
+show tables;  //see all tables
+
+### Create customer table ( in/bankdb/customer)
+CREATE TABLE customer (
+customer_id BIGINT,
+name VARCHAR(100),
+email VARCHAR(100)
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/bankdb/customer';
+
+### create account table with partitioned column
+
+ CREATE TABLE account (
+  account_id BIGINT,
+  customer_id BIGINT,
+  balance DECIMAL(12,2)
+)
+PARTITIONED BY (
+  branch_id INT  
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/bankdb/account';
+
+### create transaction table with partitioned column
+CREATE TABLE Transaction (
+  transaction_id BIGINT,
+  account_id BIGINT,
+  amount DECIMAL(12,2)
+)
+PARTITIONED BY (
+  branch_id INT  
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/bankdb/Transaction';
+# tables show
+show tables;
+### show table structure
+
+  desc customer; //short description about customer table
+  describe formatted customer; //large description about table
+
+###dataset insertion from windows to Linux to Hadoop (open another cmd and do there)
+
+syntax: docker cp file_location_in_windows myHadoop:\test  //myHadoop is my container here
+
+docker cp D:/files/customer.csv myHadoop:/test/customer.csv // ddbms is the container name(sob file evabe copy korte hbe Linux a) here Hadoop location 'test' file
+
+##Then change (D:/files) to windows csv file location with forward slash like
+
+docker cp C:/Users/ACER/Desktop/4.2/ddmbs_lab/customer.csv myHadoop:/test/customer.csv
+## now go 1st terminal quit from  hive and test file create if fail above command
+quit;
+ ls
+mkdir test
+ls
+### enter test file and check copy kora file
+cd test 
+ls
+## back from test
+cd ..
+
+### load data local inpath '/test/customer.csv' into table BankDB.customer (before insert remove column name from csv file) for non partitioned table
+
+#First enter hive and use database
+ hive
+ use bankdb;
+ load data local inpath '/test/customer.csv' into table bankdb.customer;
+
+##check table data by sql from table
+select * from customer;
+
+### TO LOAD data into partitioned table
+# create a temp table like account_tmp with same structure of csv file but without partition
+
+ CREATE TABLE account_tmp (
+    account_id BIGINT,
+    customer_id BIGINT,
+    branch_id INT,
+    balance DECIMAL(12,2)
+    
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/bankdb/account_tmp';
+#show tables
+show tables;
+
+### then load dataset data into tmp table
+ load data local inpath '/test/Account.csv' into table bankdb.account_tmp;
+##check tmp table insert data show
+
+select * from account_tmp;
+
+## then copy from tmp table to partitioned original table but before run two commands
+
+ set hive.exec.dynamic.partition=true;
+=set hive.exec.dynamic.partition.mode=nonstrict;
+#then run command but sequence of attributes of the commands must same original partitioned table created before:
+# check structure of  original partitioned table
+desc account;
+insert overwrite table bankdb.account partition(branch_id) select account_id, customer_id,balance,branch_id from account_tmp;  // column sequence thik rakhte hbe
+
+##create a temp table like transaction_tmp with same structure of cse file but without partition
+
+CREATE TABLE Transaction_tmp (
+    transaction_id BIGINT,
+    account_id BIGINT,
+    branch_id INT,
+    amount DECIMAL(12,2)
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION '/BankDB/Transaction_tmp';
+##then load dataset from test/transaction.csv into tmp table
+
+load data local inpath '/test/transaction.csv' into table bankdb.transaction_tmp;
+select*from transaction_tmp;
+
+## then copy from tmp table to partitioned original table but sequence of attributes of the commands must same original partitioned table created before:
+# check structure of  original partitioned table
+desc transaction;
+insert overwrite table bankdb.transaction partition(branch_id) select transaction_id,account_id,amount,branch_id from transaction_tmp;//column sequence thik thkb
+select*from transaction
+### delete any table/tmp table after insert data
+show tables;
+drop table account_tmp;
+show tables;
+drop table transaction;
+### show partitions
+ show partitions account;
+show partitions transaction;
+#new partitions add a table LIKE 'account'
+ALTER TABLE account
+ADD PARTITION(branch_id=6);
+
+ show partitions account;
+#new partitions add a table LIKE 'transaction'
+ALTER TABLE transaction
+ADD PARTITION(branch_id=6);
+
+ show partitions transaction;
+# drop any partition from any table
+ ALTER TABLE account
+drop PARTITION(branch_id=103);
+ ALTER TABLE transaction
+drop PARTITION(branch_id=103);
+ show partitions account;
+ show partitions transaction;
+##Show the number of transactions in each partition(branch_id)
+select branch_id,count(*) from transaction group by branch_id;
+##show customer each branch
+select branch_id,count(*) from transaction group by customer_id;
+Last summary:
+1.create and run a container
+2.create database and tables
+3.copy csv/txt files into container
+4.import data from csv/txt files into the database tables
+5.perfotm specific queries
+####map reduced:
+1.check your container
+docker ps -a
+2.start hadoop container
+docker start myHadoop //(already created docker container myHadoop)
+## if need create new container
+docker run -p 9870:9870 -p 8088:8088 -it --name=ddbms macio232/hadoop-pseudo-distributed-mode   // here ddbms is container name
+3. Access Hadoop container
+docker exec -it myHadoop bash
+4. Check Hadoop services
+jps
+
+5. Check HDFS
+hdfs dfs -ls /
+6. Go to root directory
+cd /root
+Check:
+ls
+You should see:
+WordCount.java or empty directory if you haven't created any files yet.
+7. In another terminal: (if WordCount.java is not present in the container)
+** change by windows file location
+docker cp "%USERPROFILE%\Desktop\WordCount.java" myHadoop:/root/
+
+docker cp C:\Users\ACER\Desktop\4.2\ddmbs_lab\WordCount.java" myHadoop:/root/
+##check 1st terminal
+ls
+8. Compile WordCount.java
+javac -classpath $(hadoop classpath) WordCount.java
+
+ls 
+
+You should see:
+WordCount.java
+WordCount.class
+WordCount$Map.class
+WordCount$Reduce.class
+9. Create the jar file
+jar -cvf WordCount.jar WordCount*.class
+
+ls
+
+You should see:
+WordCount.jar
+
+10. Create a test input file (inside /root directory of the container)
+
+echo "hello world hello hadoop mapreduce hadoop" > input.txt
+## check input.txt file 
+ls
+## to verify the content of the file.
+cat input.txt
+11. Create input directory in HDFS
+hdfs dfs -ls /
+
+hdfs dfs -rm -r /wordinput
+hdfs dfs -mkdir /wordinput
+##check wordinput
+hdfs dfs -ls /
+##input file copy into wordinput folder 
+hdfs dfs -put input.txt /wordinput
+
+verify the file is in HDFS:
+hdfs dfs -ls /wordinput
+
+hdfs dfs -cat /wordinput/input.txt
+
+13. delete output directory in HDFS if it exists
+hdfs dfs -rm -r /wordoutput
+14. Run the WordCount job
+hadoop jar WordCount.jar WordCount /wordinput /wordoutput
+15. Check the output of the job if create file in it to see output
+hdfs dfs -ls /wordoutput
+**check elements in it
+hdfs dfs -cat /wordoutput/part-00000
+
+
+
+
